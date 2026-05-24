@@ -2,7 +2,6 @@
 
 **Protocolo MQTT com ESP32 e Arduino UNO** · **ODS 11 – Cidades Sustentáveis**
 
-Rhayana Magella | Andre Luis de Oliveira  
 Faculdade de Computação e Informática – Universidade Presbiteriana Mackenzie (UPM) · 2025
 
 ---
