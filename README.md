@@ -490,6 +490,3 @@ void piscarLED(int vezes, int duracaoMs) {
     delay(duracaoMs);
   }
 }
-
-```
-
