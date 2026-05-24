@@ -316,3 +316,180 @@ broker.hivemq.com
             └── nivel = {"id":"lixeira_01","nivel":90,"distancia_cm":3,"alerta_visual":true,"alerta_sonoro":true}
 ```
 
+### Código Fonte
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
+
+const char* WIFI_SSID     = "5.8G_roguimaraees";
+const char* WIFI_PASSWORD = "Exodia22";
+
+const char* MQTT_SERVER   = "broker.hivemq.com";
+const int   MQTT_PORT     = 1883;
+
+const char* MQTT_TOPICO   = "cidade/lixeira/01/nivel";
+
+const char* MQTT_CLIENT_ID = "esp32_residuos_01";
+
+#define RX2_PIN 16
+#define TX2_PIN 17
+
+#define LED_BUILTIN_ESP 2
+
+#define TAMANHO_JSON 256
+
+#define RECONECTAR_INTERVAL_MS  5000
+
+WiFiClient   wifiClient;
+PubSubClient mqttClient(wifiClient);
+
+String       bufferSerial = "";
+unsigned long ultimaTentativaMQTT = 0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(200);
+
+  Serial2.begin(9600, SERIAL_8N1, RX2_PIN, TX2_PIN);
+
+  pinMode(LED_BUILTIN_ESP, OUTPUT);
+  digitalWrite(LED_BUILTIN_ESP, LOW);
+
+  Serial.println(F("\n[BOOT] ESP32 – Sistema de Monitoramento de Residuos"));
+
+  conectarWiFi();
+
+  mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+  mqttClient.setKeepAlive(60);
+  mqttClient.setCallback(callbackMQTT);
+
+  conectarMQTT();
+}
+
+void loop() {
+  if (!mqttClient.connected()) {
+    unsigned long agora = millis();
+    if (agora - ultimaTentativaMQTT > RECONECTAR_INTERVAL_MS) {
+      ultimaTentativaMQTT = agora;
+      Serial.println(F("[MQTT] Conexão perdida. Reconectando..."));
+      conectarMQTT();
+    }
+  }
+  mqttClient.loop();
+
+  while (Serial2.available()) {
+    char c = (char)Serial2.read();
+
+    if (c == '\n') {
+      bufferSerial.trim();
+
+      if (bufferSerial.length() > 0) {
+        Serial.print(F("[SERIAL RX] "));
+        Serial.println(bufferSerial);
+
+        processarEPublicar(bufferSerial);
+      }
+      bufferSerial = "";
+    } else {
+      bufferSerial += c;
+    }
+  }
+}
+
+void processarEPublicar(const String& jsonStr) {
+  StaticJsonDocument<TAMANHO_JSON> doc;
+  DeserializationError erro = deserializeJson(doc, jsonStr);
+
+  if (erro) {
+    Serial.print(F("[JSON] Erro de parse: "));
+    Serial.println(erro.c_str());
+    return;
+  }
+
+  if (!doc.containsKey("id") || !doc.containsKey("nivel")) {
+    Serial.println(F("[JSON] Campos obrigatorios ausentes (id, nivel)"));
+    return;
+  }
+
+  if (mqttClient.connected()) {
+    bool publicado = mqttClient.publish(
+      MQTT_TOPICO,
+      jsonStr.c_str(),
+      false
+    );
+
+    if (publicado) {
+      Serial.print(F("[MQTT] Publicado em '"));
+      Serial.print(MQTT_TOPICO);
+      Serial.print(F("': "));
+      Serial.println(jsonStr);
+
+      piscarLED(1, 100);
+    } else {
+      Serial.println(F("[MQTT] Falha ao publicar mensagem"));
+    }
+  } else {
+    Serial.println(F("[MQTT] Sem conexão – mensagem descartada"));
+  }
+}
+
+void conectarWiFi() {
+  Serial.print(F("[WiFi] Conectando a '"));
+  Serial.print(WIFI_SSID);
+  Serial.print(F("'"));
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print('.');
+  }
+
+  Serial.println();
+  Serial.print(F("[WiFi] Conectado! IP: "));
+  Serial.println(WiFi.localIP());
+  Serial.print(F("[WiFi] MAC: "));
+  Serial.println(WiFi.macAddress());
+}
+
+void conectarMQTT() {
+  Serial.print(F("[MQTT] Conectando a "));
+  Serial.print(MQTT_SERVER);
+  Serial.print(':');
+  Serial.print(MQTT_PORT);
+  Serial.print(F(" ..."));
+
+  if (mqttClient.connect(MQTT_CLIENT_ID)) {
+    Serial.println(F(" OK!"));
+    digitalWrite(LED_BUILTIN_ESP, HIGH);
+
+  } else {
+    Serial.print(F(" Falha! rc="));
+    Serial.println(mqttClient.state());
+    digitalWrite(LED_BUILTIN_ESP, LOW);
+  }
+}
+
+void callbackMQTT(char* topico, byte* payload, unsigned int tamanho) {
+  Serial.print(F("[MQTT RX] Mensagem em '"));
+  Serial.print(topico);
+  Serial.print(F("': "));
+  for (unsigned int i = 0; i < tamanho; i++) {
+    Serial.print((char)payload[i]);
+  }
+  Serial.println();
+}
+
+void piscarLED(int vezes, int duracaoMs) {
+  for (int i = 0; i < vezes; i++) {
+    digitalWrite(LED_BUILTIN_ESP, LOW);
+    delay(duracaoMs);
+    digitalWrite(LED_BUILTIN_ESP, HIGH);
+    delay(duracaoMs);
+  }
+}
+
+```
+
